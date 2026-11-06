@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Nuitka
+*.build/
+*.dist/
+*.onefile-build/
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test artifacts
+roundtrip/
+roundtrip.emb
+test_extract/
+exe_test/
+exe_roundtrip.emb
+*.bak
+*.bak.*
+
+# Game assets
+*.emb
+*.dyt
