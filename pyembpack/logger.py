@@ -11,6 +11,8 @@ class Logger:
         self._warns = 0
 
     def reset(self) -> None:
+        self.silent = False
+        self.verbose = False
         self._errors = 0
         self._warns = 0
 

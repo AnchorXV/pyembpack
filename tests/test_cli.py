@@ -1,7 +1,6 @@
 from __future__ import annotations
-
+import pytest
 from pathlib import Path
-
 from pyembpack import cli
 from pyembpack.emb import EMB, EMBFile
 
@@ -219,3 +218,46 @@ class TestErrors:
         rc = cli.main([str(bad), str(good), "--quiet", "--no-wait"])
         assert rc == 1
         assert (tmp_path / "good" / "a.emd").exists()
+
+class TestFlagValidation:
+    def test_add_and_remove_rejected(self, tmp_path, capsys):
+        emb_path = tmp_path / "x.emb"
+        _make_sample_emb(emb_path)
+        rc = cli.main([
+            str(emb_path), "--add", "a.bin", "--remove", "b.bin", "--no-wait",
+        ])
+        assert rc == 1
+        assert "cannot be used together" in capsys.readouterr().err
+
+    def test_add_with_extract_rejected(self, tmp_path, capsys):
+        emb_path = tmp_path / "x.emb"
+        _make_sample_emb(emb_path)
+        rc = cli.main([
+            str(emb_path), "--add", "a.bin", "-x", "--no-wait",
+        ])
+        assert rc == 1
+        assert "cannot be combined" in capsys.readouterr().err
+
+    def test_verify_with_extract_rejected(self, tmp_path):
+        emb_path = tmp_path / "x.emb"
+        _make_sample_emb(emb_path)
+        with pytest.raises(SystemExit) as exc:
+            cli.main([str(emb_path), "--verify", "-x", "--no-wait"])
+        assert exc.value.code == 2
+
+
+class TestExitCodeWarnings:
+    def test_exit_2_on_warning(self, tmp_path):
+        from pyembpack.logger import log
+        log.reset()
+        folder = tmp_path / "pack"
+        folder.mkdir()
+        (folder / "a.bin").write_bytes(b"aaa")
+        xml = """<?xml version="1.0"?>
+<EMB version="1.0.0.0">
+  <File name="gone.bin" filename="gone.bin"/>
+  <File name="a.bin" filename="a.bin"/>
+</EMB>"""
+        (folder / "embFiles.xml").write_text(xml)
+        rc = cli.main([str(folder), "--quiet", "--no-wait"])
+        assert rc == 2

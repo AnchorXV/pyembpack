@@ -53,6 +53,14 @@ def _pause(args=None, force: bool = False) -> None:
         pass
 
 
+def _validate_flags(args) -> Optional[str]:
+    if args.add and args.remove:
+        return "--add and --remove cannot be used together"
+    if (args.add or args.remove) and (args.extract or args.repack or args.list):
+        return "--add/--remove cannot be combined with -x, -r, or -l"
+    return None
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pyembpack",
@@ -118,6 +126,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _detail_entries(emb: EMB) -> None:
+    for f in emb.files:
+        name = f.name or f"DATA{f.index:03d}.dds"
+        log.detail(f"[{f.index:03d}] {name}  ({len(f.data)} bytes)")
+
+
 def process_extract(emb_path: Path, out_dir: Optional[Path], dry_run: bool) -> bool:
     try:
         emb = EMB().load(emb_path)
@@ -129,9 +143,11 @@ def process_extract(emb_path: Path, out_dir: Optional[Path], dry_run: bool) -> b
 
     if dry_run:
         log.dry(f"Would extract {len(emb.files)} files to: {dest}")
+        _detail_entries(emb)
         return True
 
     emb.extract(dest, progress=not log.silent)
+    _detail_entries(emb)
     log.ok(f"Extracted {len(emb.files)} files to: {dest}")
     return True
 
@@ -140,7 +156,7 @@ def process_repack(folder: Path, out_path: Optional[Path], dry_run: bool,
                    check: bool, no_filenames: bool) -> bool:
     emb = EMB()
     try:
-        emb.add_folder(folder)
+        emb.add_folder(folder, progress=not log.silent)
     except Exception as e:
         log.error(f"Failed to read folder '{folder}': {e}")
         return False
@@ -154,9 +170,11 @@ def process_repack(folder: Path, out_path: Optional[Path], dry_run: bool,
     if dry_run:
         log.dry(f"Would pack {len(emb.files)} files into: {dest}")
         log.dry(f"  filenames={'yes' if enable_filenames else 'no'}")
+        _detail_entries(emb)
         return True
 
     emb.save(dest, enable_filenames=enable_filenames)
+    _detail_entries(emb)
     log.ok(f"Packed {len(emb.files)} files into: {dest}")
 
     if check:
@@ -290,6 +308,12 @@ def main(argv: list[str] | None = None) -> int:
     log.silent = args.silent
     log.verbose = args.verbose
 
+    validation_error = _validate_flags(args)
+    if validation_error:
+        log.error(validation_error)
+        _pause(args)
+        return 1
+
     if args.dry_run:
         log.info("DRY RUN MODE - no files will be written.")
 
@@ -397,11 +421,16 @@ def main(argv: list[str] | None = None) -> int:
     total = success + fail
     if total > 1:
         log.info(f"Done: {success} ok, {fail} failed ({total} total)")
-    elif not log.has_errors:
+    elif not log.has_errors and not log.has_warns:
         log.ok("Finished.")
 
     _pause(args)
-    return 0 if fail == 0 else 1
+
+    if fail > 0:
+        return 1
+    if log.has_warns:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

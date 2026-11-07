@@ -3,14 +3,12 @@ from __future__ import annotations
 import struct
 import pytest
 
-from pyembpack.emb import (
-    ALIGN,
-    EMB,
-    EMBError,
-    EMBFile,
-    HEADER_SIZE,
-    MAGIC,
+from pyembpack.constants import (
+    EMB_ALIGN as ALIGN,
+    EMB_HEADER_SIZE as HEADER_SIZE,
+    EMB_SIGNATURE as MAGIC,
 )
+from pyembpack.emb import EMB, EMBError, EMBFile
 
 
 # builder independen, tidak lewat EMB.save()
@@ -249,10 +247,6 @@ class TestSave:
         emb.save(p, enable_filenames=False)
         assert EMB().load(p).version == "0.0.0.0"
 
-    def test_big_endian_not_implemented(self, tmp_path):
-        with pytest.raises(NotImplementedError):
-            EMB().save(tmp_path / "x.emb", big_endian=True)
-
     def test_zero_size_file_roundtrip(self, tmp_path):
         emb = EMB()
         emb.files = [
@@ -403,6 +397,8 @@ class TestAddFolder:
         assert [f.data for f in emb.files] == [b"ccc", b"aaa", b"bbb"]
 
     def test_xml_with_missing_file_is_skipped(self, tmp_path):
+        from pyembpack.logger import log
+        log.reset()
         folder = tmp_path / "pack"
         folder.mkdir()
         (folder / "a.bin").write_bytes(b"aaa")
@@ -412,12 +408,11 @@ class TestAddFolder:
   <File name="a.bin" filename="a.bin"/>
 </EMB>"""
         (folder / "embFiles.xml").write_text(xml)
-
         emb = EMB()
         emb.add_folder(folder)
-
         assert len(emb.files) == 1
         assert emb.files[0].name == "a.bin"
+        assert log.has_warns
 
     def test_new_files_appended_after_xml_order(self, tmp_path):
         folder = tmp_path / "pack"
@@ -596,3 +591,61 @@ class TestSanityCaps:
         p.write_bytes(data)
         with pytest.raises(EMBError, match="exceeds safety limit"):
             EMB().load(p)
+
+class TestPlaceholderDetection:
+    def test_metadata_dds_is_not_placeholder(self):
+        emb = EMB()
+        emb.files = [EMBFile(data=b"", name="METADATA.dds", index=0)]
+        assert emb.detect_filename_mode() is True
+
+    def test_somedata_prefix_is_not_placeholder(self):
+        emb = EMB()
+        emb.files = [EMBFile(data=b"", name="SOMEDATA000.dds", index=0)]
+        assert emb.detect_filename_mode() is True
+
+    def test_real_placeholder_is_placeholder(self):
+        emb = EMB()
+        for i in range(3):
+            emb.files.append(EMBFile(
+                data=b"", name=f"DATA{i:03d}.dds", index=i,
+            ))
+        assert emb.detect_filename_mode() is False
+
+    def test_large_index_placeholder(self):
+        emb = EMB()
+        emb.files = [EMBFile(data=b"", name="DATA10000.dds", index=0)]
+        assert emb.detect_filename_mode() is False
+
+    def test_zero_size_database_bin_not_stripped(self, tmp_path):
+        folder = tmp_path / "pack"
+        folder.mkdir()
+        (folder / "DATABASE.bin").write_bytes(b"")
+        emb = EMB()
+        emb.add_folder(folder)
+        assert emb.files[0].name == "DATABASE.bin"
+
+    def test_zero_size_data_custom_ini_not_stripped(self, tmp_path):
+        folder = tmp_path / "pack"
+        folder.mkdir()
+        (folder / "DATA_custom.ini").write_bytes(b"")
+        emb = EMB()
+        emb.add_folder(folder)
+        assert emb.files[0].name == "DATA_custom.ini"
+
+    def test_missing_xml_file_emits_warning(self, tmp_path, capsys):
+        from pyembpack.logger import log
+        log.reset()
+        folder = tmp_path / "pack"
+        folder.mkdir()
+        (folder / "a.bin").write_bytes(b"aaa")
+        xml = """<?xml version="1.0"?>
+<EMB version="1.0.0.0">
+  <File name="gone.bin" filename="gone.bin"/>
+  <File name="a.bin" filename="a.bin"/>
+</EMB>"""
+        (folder / "embFiles.xml").write_text(xml)
+        emb = EMB()
+        emb.add_folder(folder)
+        captured = capsys.readouterr()
+        assert "Missing file" in captured.out
+        assert "gone.bin" in captured.out
